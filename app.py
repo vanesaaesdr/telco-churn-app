@@ -8,27 +8,46 @@ from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.linear_model import LogisticRegression
 
-st.set_page_config(page_title="Telco Customer Churn Prediction", layout="wide")
+# ---------------------------
+# SETTING HALAMAN
+# ---------------------------
+st.set_page_config(
+    page_title="Telco Customer Churn Prediction",
+    layout="wide"
+)
 
+# ---------------------------
+# TRAIN MODEL DI AWAL (CACHED)
+# ---------------------------
 @st.cache_resource
 def train_model():
+    # 1. Load dataset Telco dari file CSV (harus ada di repo)
     df = pd.read_csv("WA_Fn-UseC_-Telco-Customer-Churn.csv")
 
+    # 2. Perbaiki TotalCharges
     df["TotalCharges"] = pd.to_numeric(df["TotalCharges"], errors="coerce")
     df["TotalCharges"] = df["TotalCharges"].fillna(df["TotalCharges"].median())
+
+    # 3. Target biner
     df["Churn"] = df["Churn"].map({"No": 0, "Yes": 1})
+
+    # 4. Drop ID
     df = df.drop(columns=["customerID"])
 
+    # 5. Pisahkan X, y
     X = df.drop("Churn", axis=1)
     y = df["Churn"]
 
+    # 6. Train–test split
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.2, random_state=42, stratify=y
     )
 
+    # 7. Definisikan fitur numerik & kategorikal
     numeric_features = ["tenure", "MonthlyCharges", "TotalCharges"]
     categorical_features = [c for c in X.columns if c not in numeric_features]
 
+    # 8. Preprocessing pipelines
     numeric_transformer = Pipeline(steps=[
         ("imputer", SimpleImputer(strategy="median")),
         ("scaler", StandardScaler())
@@ -46,24 +65,28 @@ def train_model():
         ]
     )
 
+    # 9. Model Logistic Regression
     model = Pipeline(steps=[
         ("preprocess", preprocessor),
         ("model", LogisticRegression(max_iter=1000))
     ])
 
+    # 10. Train model
     model.fit(X_train, y_train)
-    return model
 
-model = train_model()
+    # Kembalikan model yang sudah terlatih
+    return model, numeric_features, categorical_features
+
+model, numeric_features, categorical_features = train_model()
 
 # ---------------------------
-# HEADER / JUDUL
+# HEADER
 # ---------------------------
 st.markdown(
     """
     <h1 style="text-align:center;">📊 Telco Customer Churn Prediction</h1>
     <p style="text-align:center; max-width:700px; margin:auto;">
-    Aplikasi ini memprediksi kemungkinan pelanggan berhenti (churn) menggunakan model Machine Learning yang telah dilatih.
+    Aplikasi ini memprediksi kemungkinan pelanggan berhenti (churn) menggunakan model Machine Learning.
     </p>
     <br>
     """,
@@ -71,11 +94,10 @@ st.markdown(
 )
 
 # ---------------------------
-# INPUT DATA PELANGGAN
+# INPUT FORM (UI mirip screenshot)
 # ---------------------------
 st.markdown("### 🧾 Input Data Pelanggan")
 
-# Bungkus dalam container agar form rapi di tengah
 with st.container():
     col_left, col_right, col_empty = st.columns([2.5, 2.5, 3])
 
@@ -92,20 +114,20 @@ with st.container():
         MultipleLines = st.selectbox("Multiple Lines", ["No phone service", "No", "Yes"])
         InternetService = st.selectbox("Internet Service", ["DSL", "Fiber optic", "No"])
         Contract = st.selectbox("Contract", ["Month-to-month", "One year", "Two year"])
+        PaperlessBilling = st.selectbox("Paperless Billing", ["No", "Yes"])
         PaymentMethod = st.selectbox(
             "Payment Method",
             ["Electronic check", "Mailed check", "Bank transfer (automatic)", "Credit card (automatic)"]
         )
         TotalCharges = st.number_input("Total Charges ($)", min_value=0.0, max_value=10000.0, value=800.0, step=10.0)
 
-# tombol prediksi di bawah form
 pred_button = st.button("🔍 Prediksi Churn")
 
 # ---------------------------
-# PREDIKSI & OUTPUT
+# PREDIKSI
 # ---------------------------
 if pred_button:
-    # DataFrame input disusun sesuai kolom dataset Telco IBM (tanpa customerID dan Churn) [file:21]
+    # Susun input user sebagai DataFrame dengan kolom sama seperti training
     input_df = pd.DataFrame({
         "gender": [gender],
         "SeniorCitizen": [SeniorCitizen],
@@ -115,30 +137,27 @@ if pred_button:
         "PhoneService": [PhoneService],
         "MultipleLines": [MultipleLines],
         "InternetService": [InternetService],
-        "OnlineSecurity": ["No"],          # default sederhana
+        "OnlineSecurity": ["No"],
         "OnlineBackup": ["No"],
         "DeviceProtection": ["No"],
         "TechSupport": ["No"],
         "StreamingTV": ["No"],
         "StreamingMovies": ["No"],
         "Contract": [Contract],
-        "PaperlessBilling": ["Yes"],       # default sering Yes
+        "PaperlessBilling": [PaperlessBilling],
         "PaymentMethod": [PaymentMethod],
         "MonthlyCharges": [MonthlyCharges],
         "TotalCharges": [TotalCharges],
     })
 
-    # prediksi churn
+    # Prediksi dengan model (pipeline)
     y_pred = model.predict(input_df)[0]
     proba_churn = model.predict_proba(input_df)[0][1]
     proba_pct = proba_churn * 100
 
-    # ---------------------------
-    # HASIL PREDIKSI (UI MIRIP GAMBAR)
-    # ---------------------------
+    # Hasil Prediksi
     st.markdown("### 📌 Hasil Prediksi")
 
-    # kartu hijau / merah
     if y_pred == 1:
         st.markdown(
             "<div style='background-color:#7f1d1d; padding:12px; border-radius:6px; color:white;'>"
@@ -154,24 +173,16 @@ if pred_button:
             unsafe_allow_html=True,
         )
 
-    st.write("")  # spasi kecil
     st.write(f"**Probabilitas Churn:** {proba_pct:.2f}%")
+    st.progress(int(proba_pct))
 
-    # progress bar probabilitas (warna biru seperti contoh)
-    prog_col, _ = st.columns([3, 2])
-    with prog_col:
-        st.progress(int(proba_pct))
-
-    # ---------------------------
-    # PENJELASAN FITUR
-    # ---------------------------
     st.markdown("### 📘 Penjelasan Fitur")
     st.markdown(
         """
-        - **Tenure**: Lama berlangganan (bulan). Semakin singkat biasanya risiko churn lebih tinggi.  
+        - **Tenure**: Lama berlangganan; makin pendek biasanya risiko churn lebih tinggi.  
         - **Monthly Charges**: Tagihan bulanan pelanggan.  
-        - **Total Charges**: Total tagihan selama berlangganan.  
-        - **Contract**: Kontrak jangka panjang (One year/Two year) biasanya membuat churn lebih kecil.  
-        - **Payment Method & Paperless Billing**: Pola pembayaran tertentu sering berkaitan dengan churn.
+        - **Total Charges**: Total tagihan sejak berlangganan.  
+        - **Contract**: Kontrak bulanan cenderung lebih rawan churn.  
+        - **Payment Method & Paperless Billing**: Pola pembayaran juga memengaruhi churn.
         """
     )
